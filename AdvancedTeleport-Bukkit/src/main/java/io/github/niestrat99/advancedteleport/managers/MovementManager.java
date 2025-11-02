@@ -9,36 +9,43 @@ import io.github.niestrat99.advancedteleport.payments.PaymentManager;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageEvent;
-import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 
-import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class MovementManager implements Listener {
+public class MovementManager implements Listener, Runnable {
 
-    private static final HashMap<UUID, ImprovedRunnable> movement = new HashMap<>();
+    private static final Map<UUID, ImprovedRunnable> movement = new ConcurrentHashMap<>();
+    private static final Map<UUID, Location> lastLocations = new ConcurrentHashMap<>();
 
-    @EventHandler
-    public void onMovement(PlayerMoveEvent event) {
+    @Override
+    public void run() {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            Location from = lastLocations.getOrDefault(player.getUniqueId(), player.getLocation());
+            Location to = player.getLocation().clone();
 
-        boolean cancelled = willCancelTimer(event);
+            boolean cancelled = willCancelTimer(player, from, to);
+            UUID uuid = player.getUniqueId();
+            if (cancelled && movement.containsKey(uuid)) {
+                ImprovedRunnable timer = movement.get(uuid);
+                timer.cancel();
+                CustomMessages.sendMessage(player, "Teleport.eventMovement");
+                ParticleManager.removeParticles(player, timer.command);
+                movement.remove(uuid);
+            }
 
-        UUID uuid = event.getPlayer().getUniqueId();
-        if (cancelled && movement.containsKey(uuid)) {
-            ImprovedRunnable timer = movement.get(uuid);
-            timer.cancel();
-            CustomMessages.sendMessage(event.getPlayer(), "Teleport.eventMovement");
-            ParticleManager.removeParticles(event.getPlayer(), timer.command);
-            movement.remove(uuid);
+            lastLocations.put(player.getUniqueId(), to);
         }
     }
 
@@ -60,20 +67,20 @@ public class MovementManager implements Listener {
         movement.remove(player.getUniqueId());
     }
 
-    private static boolean willCancelTimer(PlayerMoveEvent event) {
+    private static boolean willCancelTimer(Player player, Location from, Location to) {
         boolean cancelOnRotate =
                 MainConfig.get().CANCEL_WARM_UP_ON_ROTATION.get()
-                        && !event.getPlayer().hasPermission("at.admin.bypass.rotation");
+                        && !player.hasPermission("at.admin.bypass.rotation");
         boolean cancelOnMove =
                 MainConfig.get().CANCEL_WARM_UP_ON_MOVEMENT.get()
-                        && !event.getPlayer().hasPermission("at.admin.bypass.movement");
+                        && !player.hasPermission("at.admin.bypass.movement");
 
         boolean cancelled = false;
 
         // If we have to perform position checks, compare blocks
         if (cancelOnMove) {
-            Location locTo = event.getTo();
-            Location locFrom = event.getFrom();
+            Location locTo = to.clone();
+            Location locFrom = from.clone();
             if (MainConfig.get().CHECK_EXACT_COORDINATES.get()) {
                 if (locTo.getX() != locFrom.getX() // If the player moved
                         || locTo.getY() != locFrom.getY()
@@ -91,8 +98,8 @@ public class MovementManager implements Listener {
 
         // If we have to perform rotation checks, compare
         if (cancelOnRotate && !cancelled) {
-            Location locTo = event.getTo();
-            Location locFrom = event.getFrom();
+            Location locTo = to.clone();
+            Location locFrom = from.clone();
 
             if (locTo.getPitch() != locFrom.getPitch() || locTo.getYaw() != locFrom.getYaw()) {
                 cancelled = true;
@@ -102,7 +109,7 @@ public class MovementManager implements Listener {
         return cancelled;
     }
 
-    public static HashMap<UUID, ImprovedRunnable> getMovement() {
+    public static Map<UUID, ImprovedRunnable> getMovement() {
         return movement;
     }
 

@@ -1,5 +1,6 @@
 package io.github.niestrat99.advancedteleport;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import io.github.niestrat99.advancedteleport.config.ATConfig;
 import io.github.niestrat99.advancedteleport.config.CustomMessages;
 import io.github.niestrat99.advancedteleport.config.GUIConfig;
@@ -38,16 +39,24 @@ import java.net.URISyntaxException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
+import java.util.concurrent.*;
 
 public final class CoreClass extends JavaPlugin {
 
     private static CoreClass instance;
-    public static final Executor async =
-            task -> Bukkit.getScheduler().runTaskAsynchronously(CoreClass.getInstance(), task);
+    public static final Executor async = Executors.newFixedThreadPool(4,
+            new ThreadFactoryBuilder()
+                    .setNameFormat("AdvancedTeleport Async Executor - %d")
+                    .build()
+    );
     public static final Executor sync =
             task -> Bukkit.getScheduler().runTask(CoreClass.getInstance(), task);
+    private static final ScheduledExecutorService tracker = Executors.newSingleThreadScheduledExecutor(
+            new ThreadFactoryBuilder()
+                    .setNameFormat("AdvancedTeleport Movement Tracker")
+                    .setPriority(Thread.MIN_PRIORITY)
+                    .build()
+    );
     private static Permission perms;
     private Object[] updateInfo;
 
@@ -82,6 +91,7 @@ public final class CoreClass extends JavaPlugin {
         } catch (IOException e) {
             getLogger().warning("Failed to save RTP locations: " + e.getMessage());
         }
+        tracker.shutdown();
     }
 
     @Override
@@ -183,11 +193,13 @@ public final class CoreClass extends JavaPlugin {
     }
 
     private void registerEvents() {
+        MovementManager movementManager = new MovementManager();
         getServer().getPluginManager().registerEvents(new TeleportTrackingManager(), this);
-        getServer().getPluginManager().registerEvents(new MovementManager(), this);
         getServer().getPluginManager().registerEvents(new PlayerListeners(), this);
         getServer().getPluginManager().registerEvents(new WorldLoadListener(), this);
         getServer().getPluginManager().registerEvents(new MapEventListeners(), this);
+        getServer().getPluginManager().registerEvents(movementManager, this);
+        tracker.scheduleAtFixedRate(movementManager, 0L, 100L, TimeUnit.MILLISECONDS);
 
         if (PaperLib.isPaper()) {
             registerOrElse(new PaperSignOpenListener(), new PaperLegacySignListener());
