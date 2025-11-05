@@ -44,7 +44,7 @@ import java.util.concurrent.*;
 public final class CoreClass extends JavaPlugin {
 
     private static CoreClass instance;
-    public static final Executor async = Executors.newFixedThreadPool(4,
+    public static final Executor async = Executors.newFixedThreadPool(2,
             new ThreadFactoryBuilder()
                     .setNameFormat("AdvancedTeleport Async Executor - %d")
                     .build()
